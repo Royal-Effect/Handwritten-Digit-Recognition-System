@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digit Recognition Pro</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .tab {
+            overflow: hidden;
+            border-bottom: 2px solid #ccc;
+            background-color: #e9ecef;
+            border-radius: 10px 10px 0 0;
+            display: inline-block;
+        }
+
+        .tab button {
+            background-color: inherit;
+            float: left;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            padding: 14px 24px;
+            font-size: 18px;
+            transition: 0.3s;
+            font-weight: bold;
+        }
+
+        .tab button:hover {
+            background-color: #ddd;
+        }
+
+        .tab button.active {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .tabcontent {
+            display: none;
+            padding: 30px 20px;
+            background: white;
+            border-radius: 0 0 10px 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            margin: 0 auto;
+            max-width: 900px;
+        }
+
+        canvas {
+            border: 2px solid #333;
+            cursor: crosshair;
+            background-color: black;
+            margin: 15px 0;
+        }
+
+        .controls {
+            margin-top: 15px;
+        }
+
+        button.actionBtn {
+            display: inline-block;
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 0 5px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+        }
+
+        button.clearBtn {
+            background-color: #dc3545;
+        }
+
+        button.eraserBtn {
+            background-color: #6c757d;
+        }
+
+        .result {
+            margin-top: 15px;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .flex-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 40px;
+            flex-wrap: wrap;
+        }
+
+        .chart-container {
+            width: 400px;
+            height: 300px;
+        }
+
+        /* Webcam Overlay Styles */
+        .video-container {
+            position: relative;
+            display: inline-block;
+            margin-top: 15px;
+        }
+
+        #webcam {
+            border: 3px solid #333;
+            border-radius: 8px;
+            background-color: #000;
+            width: 640px;
+            height: 480px;
+            object-fit: cover;
+        }
+
+        #overlayCanvas {
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            z-index: 10;
+            pointer-events: none;
+            background-color: transparent;
+            border: none;
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h2>OCR Digit Recognition System</h2>
+
+    <div class="tab">
+        <button class="tablinks active" onclick="openTab(event, 'SingleTab')">Single Digit</button>
+        <button class="tablinks" onclick="openTab(event, 'MultiTab')">Multi-Digit</button>
+        <button class="tablinks" onclick="openTab(event, 'CameraTab')">Live Scanner</button>
+    </div>
+
+    <!-- TAB 1: Single Digit -->
+    <div id="SingleTab" class="tabcontent" style="display:block;">
+        <div class="flex-container">
+            <div>
+                <h3>Draw a single number</h3>
+                <canvas id="canvasSingle" width="280" height="280"></canvas>
+                <div class="controls">
+                    <button class="actionBtn clearBtn" onclick="clearCanvas(canvasSingle, ctxSingle)">Clear</button>
+                    <button class="actionBtn eraserBtn" onclick="toggleEraser(ctxSingle, this)">Eraser (Off)</button>
+                    <button class="actionBtn" id="btnSingle">Predict</button>
+                </div>
+                <div class="result">Prediction: <span id="resSingle" style="color:#007bff;">-</span></div>
+            </div>
+            <div class="chart-container"><canvas id="probabilityChart"></canvas></div>
+        </div>
+    </div>
+
+    <!-- TAB 2: Multi Digit -->
+    <div id="MultiTab" class="tabcontent">
+        <h3>Draw multiple numbers</h3>
+        <canvas id="canvasMulti" width="800" height="280"></canvas>
+        <div class="controls">
+            <button class="actionBtn clearBtn" onclick="clearCanvas(canvasMulti, ctxMulti)">Clear</button>
+            <button class="actionBtn eraserBtn" onclick="toggleEraser(ctxMulti, this)">Eraser (Off)</button>
+            <button class="actionBtn" id="btnMulti">Predict Sequence</button>
+        </div>
+        <div class="result">Detected Sequence: <span id="resMulti" style="color:#28a745;">-</span></div>
+    </div>
+
+    <!-- TAB 3: Webcam Scanner -->
+    <div id="CameraTab" class="tabcontent">
+        <h3>Live Computer Vision Scanner</h3>
+        <p style="color: #666;">Hold paper up to the camera and click Scan.</p>
+
+        <div class="video-container">
+            <video id="webcam" autoplay playsinline></video>
+            <canvas id="overlayCanvas"></canvas>
+        </div>
+
+        <canvas id="snapshotCanvas" style="display: none;"></canvas>
+
+        <div class="controls">
+            <button class="actionBtn" id="btnStartCamera">Start Camera</button>
+            <!-- Stop Camera Button -->
+            <button class="actionBtn clearBtn" id="btnStopCamera" style="display: none;">Stop Camera</button>
+            <button class="actionBtn" id="btnScan" style="display: none; background-color: #28a745;">Scan Frame</button>
+        </div>
+        <div class="result">Detected Sequence: <span id="resCamera" style="color:#28a745;">-</span></div>
+    </div>
+
+    <script>
+        // --- TAB SWITCHING LOGIC ---
+        function openTab(evt, tabName) {
+            let tabcontent = document.getElementsByClassName("tabcontent");
+            for (let i = 0; i < tabcontent.length; i++) tabcontent[i].style.display = "none";
+            let tablinks = document.getElementsByClassName("tablinks");
+            for (let i = 0; i < tablinks.length; i++) tablinks[i].className = tablinks[i].className.replace(" active", "");
+            document.getElementById(tabName).style.display = "block";
+            evt.currentTarget.className += " active";
+        }
+
+        // --- CANVAS DRAWING SETUP ---
+        function setupCanvas(canvasId) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            let isDrawing = false;
+            ctx.lineWidth = 25; ctx.lineCap = 'round'; ctx.strokeStyle = 'white';
+            clearCanvas(canvas, ctx);
+            canvas.addEventListener('mousedown', (e) => { isDrawing = true; draw(e, canvas, ctx, isDrawing); });
+            canvas.addEventListener('mousemove', (e) => draw(e, canvas, ctx, isDrawing));
+            canvas.addEventListener('mouseup', () => { isDrawing = false; ctx.beginPath(); });
+            canvas.addEventListener('mouseout', () => { isDrawing = false; ctx.beginPath(); });
+            return { canvas, ctx };
+        }
+
+        function draw(e, canvas, ctx, isDrawing) {
+            if (!isDrawing) return;
+            const rect = canvas.getBoundingClientRect();
+            ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+            ctx.stroke(); ctx.beginPath(); ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+        }
+
+        // --- ERASER LOGIC ---
+        function toggleEraser(ctx, btn) {
+            if (ctx.strokeStyle === '#ffffff' || ctx.strokeStyle === 'white') {
+                ctx.strokeStyle = 'black'; ctx.lineWidth = 40; btn.innerText = 'Eraser (On)'; btn.style.backgroundColor = '#28a745';
+            } else {
+                ctx.strokeStyle = 'white'; ctx.lineWidth = 25; btn.innerText = 'Eraser (Off)'; btn.style.backgroundColor = '#6c757d';
+            }
+        }
+
+        function clearCanvas(canvas, ctx) {
+            ctx.fillStyle = 'black'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = 'white'; ctx.lineWidth = 25;
+            document.querySelectorAll('.eraserBtn').forEach(btn => { btn.innerText = 'Eraser (Off)'; btn.style.backgroundColor = '#6c757d'; });
+        }
+
+        const { canvas: canvasSingle, ctx: ctxSingle } = setupCanvas('canvasSingle');
+        const { canvas: canvasMulti, ctx: ctxMulti } = setupCanvas('canvasMulti');
+
+        // --- CHART.JS SETUP ---
+        const ctxChart = document.getElementById('probabilityChart').getContext('2d');
+        let probChart = new Chart(ctxChart, {
+            type: 'bar',
+            data: { labels: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'], datasets: [{ label: 'Confidence Level', data: Array(10).fill(0), backgroundColor: 'rgba(0,123,255,0.7)' }] },
+            options: { scales: { y: { beginAtZero: true, max: 1 } }, animation: { duration: 300 } }
+        });
+
+        // --- CANVAS PREDICTION LOGIC ---
+        document.getElementById('btnSingle').addEventListener('click', async () => {
+            const res = await fetch('/predict_single', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: canvasSingle.toDataURL() }) });
+            const result = await res.json();
+            document.getElementById('resSingle').innerText = result.prediction;
+            probChart.data.datasets[0].data = result.probabilities; probChart.update();
+        });
+
+        document.getElementById('btnMulti').addEventListener('click', async () => {
+            const res = await fetch('/predict_multi', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: canvasMulti.toDataURL() }) });
+            const result = await res.json();
+            document.getElementById('resMulti').innerText = result.prediction || "None detected";
+        });
+
+        // --- LIVE WEBCAM & BOUNDING BOX LOGIC ---
+        const video = document.getElementById('webcam');
+        const overlayCanvas = document.getElementById('overlayCanvas');
+        const ctxOverlay = overlayCanvas.getContext('2d');
+        const snapshotCanvas = document.getElementById('snapshotCanvas');
+        const ctxSnap = snapshotCanvas.getContext('2d');
+        const btnStartCamera = document.getElementById('btnStartCamera');
+        const btnStopCamera = document.getElementById('btnStopCamera');
+        const btnScan = document.getElementById('btnScan');
+        let cameraStream = null;
+
+        btnStartCamera.addEventListener('click', async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: 640, height: 480 } });
+                video.srcObject = stream;
+                cameraStream = stream;
+
+                video.onloadedmetadata = () => {
+                    overlayCanvas.width = video.videoWidth;
+                    overlayCanvas.height = video.videoHeight;
+                    snapshotCanvas.width = video.videoWidth;
+                    snapshotCanvas.height = video.videoHeight;
+                };
+
+                btnStartCamera.style.display = 'none';
+                btnStopCamera.style.display = 'inline-block';
+                btnScan.style.display = 'inline-block';
+            } catch (err) {
+                alert("Could not access the camera.");
+            }
+        });
+
+        btnStopCamera.addEventListener('click', () => {
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+                cameraStream = null;
+            }
+            ctxOverlay.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            document.getElementById('resCamera').innerText = "-";
+
+            btnStopCamera.style.display = 'none';
+            btnScan.style.display = 'none';
+            btnStartCamera.style.display = 'inline-block';
+        });
+
+        btnScan.addEventListener('click', async () => {
+            document.getElementById('resCamera').innerText = "Scanning...";
+            ctxOverlay.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+            ctxSnap.drawImage(video, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
+            const dataURL = snapshotCanvas.toDataURL('image/png');
+
+            try {
+                const res = await fetch('/predict_image', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: dataURL })
+                });
+                const result = await res.json();
+
+                if (result.boxes && result.boxes.length > 0) {
+                    let detectedString = "";
+                    result.boxes.forEach(box => {
+                        ctxOverlay.strokeStyle = "#00ff00";
+                        ctxOverlay.lineWidth = 3;
+                        ctxOverlay.strokeRect(box.x, box.y, box.w, box.h);
+
+                        ctxOverlay.fillStyle = "#00ff00";
+                        ctxOverlay.font = "24px Arial";
+                        ctxOverlay.fillText(box.digit, box.x, box.y - 5);
+
+                        detectedString += box.digit;
+                    });
+                    document.getElementById('resCamera').innerText = detectedString;
+                } else {
+                    document.getElementById('resCamera').innerText = "No numbers found.";
+                }
+            } catch (err) {
+                document.getElementById('resCamera').innerText = "Error scanning frame.";
+            }
+        });
+    </script>
+</body>
+
+</html>
